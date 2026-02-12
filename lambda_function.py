@@ -4,46 +4,47 @@ import requests
 import feedparser
 
 def lambda_handler(event, context):
+    # 1. 환경 변수 설정
     slack_url = os.environ.get('SLACK_URL')
-    keywords = ["클라우드", "AI", "Cloud", "AWS", "Docker", "Kubernetes", "인프라"]
     
-    # 사이트별 이모지 설정
-    site_emojis = {
-        "GeekNews": "📰",
-        "NHN Cloud": "☁️",
-        "당근 Tech": "🥕"
+    # 키워드 대폭 축소 (클라우드, AI 관련만)
+    keywords = ["클라우드", "AI"]
+    
+    # 2. 플랫폼 설정 (GeekNews 주소를 기존 주소로 복구)
+    site_config = {
+        "GeekNews": {"rss": "https://news.hada.io/rss/news", "emoji": "📰"},
+        "요즘IT": {"rss": "https://yozm.wishket.com/magazine/feed/", "emoji": "💻"},
+        "GCP 블로그": {"rss": "https://blog.google/products/google-cloud/rss/", "emoji": "☁️"}
     }
-    
-    sources = [
-        ("GeekNews", "https://news.hada.io/rss/news"),
-        ("NHN Cloud", "https://meetup.nhncloud.com/rss"),
-        ("당근 Tech", "https://medium.com/feed/daangn")
-    ]
 
-    full_message = ["🚀 *클라우드 엔지니어 기술 트렌드 리포트* 🚀\n오늘의 뉴스를 보내드립니다!"]
+    full_message = ["🚀 *기술 트렌드 리포트* 🚀\n오늘의 큐레이션 뉴스를 보내드립니다!"]
 
-    for source_name, rss_url in sources:
-        print(f"{source_name} 수집 시작...")
+    for source_name, config in site_config.items():
+        print(f"{source_name} 수집 시도 중...")
         try:
-            feed = feedparser.parse(rss_url)
-            site_articles = []
+            feed = feedparser.parse(config["rss"])
             
+            # 피드가 비어있는지 확인 (디버깅용 로그)
+            if not feed.entries:
+                print(f"⚠️ {source_name} 피드에서 기사를 찾을 수 없습니다. (URL 확인 필요)")
+                continue
+
+            site_articles = []
             latest_count = 0
             keyword_count = 0
             
             for entry in feed.entries:
                 title = entry.title
                 link = entry.link
-                # 슬랙 마크다운 형식: <URL|제목>
                 formatted_link = f"• <{link}|{title}>"
                 
-                # 1. 무조건 최신 2개
+                # 규칙 1: 최신 2개
                 if latest_count < 2:
                     site_articles.append(formatted_link)
                     latest_count += 1
                     continue
                 
-                # 2. 키워드 포함 2개
+                # 규칙 2: 키워드 포함 2개
                 if keyword_count < 2:
                     if any(key.lower() in title.lower() for key in keywords):
                         site_articles.append(formatted_link)
@@ -52,16 +53,15 @@ def lambda_handler(event, context):
                 if latest_count == 2 and keyword_count == 2:
                     break
             
-            # 해당 사이트의 글이 있다면 결과 메시지에 추가
             if site_articles:
-                emoji = site_emojis.get(source_name, "✨")
+                emoji = config["emoji"]
                 section = f"\n{emoji} *{source_name}*\n" + "\n".join(site_articles)
                 full_message.append(section)
                 
         except Exception as e:
-            print(f"{source_name} 수집 중 오류: {e}")
+            print(f"{source_name} 에러 발생: {e}")
 
-    # --- 슬랙 전송 ---
+    # 3. 슬랙 전송
     if len(full_message) > 1:
         payload = {"text": "\n".join(full_message)}
         requests.post(
@@ -71,4 +71,4 @@ def lambda_handler(event, context):
         )
         return {"statusCode": 200, "body": "Success"}
     
-    return {"statusCode": 200, "body": "No articles found"}
+    return {"statusCode": 200, "body": "No data"}
